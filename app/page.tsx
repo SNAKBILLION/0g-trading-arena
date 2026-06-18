@@ -10,20 +10,31 @@ export default function Home() {
   const [market, setMarket] = useState<MarketData[]>([])
   const [decisions, setDecisions] = useState<Decision[]>([])
   const [error, setError] = useState("")
+  const [verifyStatus, setVerifyStatus] = useState<Record<string, "idle" | "loading" | "pass" | "fail">>({})
+
+  async function verifyDecision(id: string, rootHash: string) {
+    setVerifyStatus((s) => ({ ...s, [id]: "loading" }))
+    try {
+      const res = await fetch(`/api/anchor?id=${id}&rootHash=${rootHash}`)
+      const data = await res.json()
+      setVerifyStatus((s) => ({ ...s, [id]: data.verified ? "pass" : "fail" }))
+    } catch {
+      setVerifyStatus((s) => ({ ...s, [id]: "fail" }))
+    }
+  }
 
   async function runCompetition() {
     setError("")
     setDecisions([])
+    setVerifyStatus({})
 
     try {
-      // Phase 1: Scan market
       setPhase("scanning")
       const scanRes = await fetch("/api/scan")
       const scanData = await scanRes.json()
       if (!scanRes.ok) throw new Error(scanData.error)
       setMarket(scanData.market)
 
-      // Phase 2+3+4: Run strategies + store + anchor
       setPhase("competing")
       const competeRes = await fetch("/api/compete", { method: "POST" })
       const competeData = await competeRes.json()
@@ -51,9 +62,9 @@ export default function Home() {
           Verifiable AI Trading Arena
         </h1>
         <p className="max-w-2xl text-arena-muted">
-          Three AI strategies analyze the same market data. Every decision runs through
-          0G Compute (TEE-verified), gets stored on 0G Storage (immutable), and anchored
-          on 0G Chain (tamper-proof). Anyone can verify.
+          Three AI strategies compete on live market data. Every decision is stored
+          immutably on 0G Storage and anchored on 0G Chain — fully verifiable and
+          tamper-proof. 0G Compute TEE integration ready for production.
         </p>
       </section>
 
@@ -160,6 +171,24 @@ export default function Home() {
                           </a>
                         </div>
                       )}
+                      {d.chain_tx_hash && (
+                        <button
+                          onClick={() => verifyDecision(d.id, d.storage_root_hash!)}
+                          disabled={verifyStatus[d.id] === "loading"}
+                          className={`mt-2 rounded px-3 py-1 font-mono text-xs transition ${
+                            verifyStatus[d.id] === "pass"
+                              ? "bg-green-500/20 text-green-400"
+                              : verifyStatus[d.id] === "fail"
+                              ? "bg-red-500/20 text-red-400"
+                              : "bg-arena-accent/20 text-arena-accent hover:bg-arena-accent/30"
+                          } disabled:opacity-40`}
+                        >
+                          {verifyStatus[d.id] === "loading" ? "Verifying..." :
+                           verifyStatus[d.id] === "pass" ? "✓ Integrity Verified" :
+                           verifyStatus[d.id] === "fail" ? "✗ Verification Failed" :
+                           "Verify Integrity"}
+                        </button>
+                      )}
                     </div>
                   ) : (
                     <div className="font-mono text-xs text-arena-muted italic">
@@ -181,7 +210,7 @@ export default function Home() {
           </h2>
           <div className="grid gap-4 sm:grid-cols-3">
             {[
-              { step: "0G Compute", desc: "AI strategies run inside TEE — inference is tamper-proof and verifiable." },
+              { step: "0G Compute", desc: "AI strategies analyze market data. TEE-verified inference ready — currently using fallback provider." },
               { step: "0G Storage", desc: "Full decision audit log (market data + reasoning + signal) stored immutably." },
               { step: "0G Chain", desc: "Content hash anchored on-chain. Anyone can verify nothing was changed." },
             ].map((s) => (

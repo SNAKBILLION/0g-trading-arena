@@ -13,14 +13,15 @@ function getContract(signerOrProvider: ethers.Signer | ethers.Provider) {
   return new ethers.Contract(config.arenaContract, ARENA_ABI, signerOrProvider)
 }
 
-export async function anchorDecision(decision: Decision, storageRootHash: string) {
+export async function anchorDecision(decision: Decision, storageRootHash: string, preComputedHash?: string) {
   const provider = new ethers.JsonRpcProvider(config.zerog.rpc)
   const signer = new ethers.Wallet(config.privateKey, provider)
   const contract = getContract(signer)
 
-  // Hash the full decision JSON for integrity verification
-  const json = JSON.stringify(decision, null, 2)
-  const contentHash = ethers.keccak256(ethers.toUtf8Bytes(json))
+  // Use pre-computed hash if provided, otherwise compute from current decision
+  const contentHash = preComputedHash ?? ethers.keccak256(
+    ethers.toUtf8Bytes(JSON.stringify(decision, null, 2))
+  )
 
   const tx = await contract.anchorDecision(
     decision.id,
@@ -50,7 +51,6 @@ export async function verifyDecision(decisionId: string) {
   }
 }
 
-// Sign an EIP-191 receipt for extra verifiability
 export async function signReceipt(decision: Decision, storageRootHash: string) {
   const signer = new ethers.Wallet(config.privateKey)
   const message = `0G-Arena|${decision.id}|${decision.strategy_name}|${storageRootHash}|${decision.timestamp}`

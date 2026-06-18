@@ -5,13 +5,12 @@ import { uploadDecision } from "@/lib/zerog-storage"
 import { anchorDecision, signReceipt } from "@/lib/zerog-chain"
 import type { Decision } from "@/lib/types"
 import { randomUUID } from "crypto"
+import { ethers } from "ethers"
 
 export async function POST() {
   try {
-    // 1. Fetch market data
     const market = await fetchMarketData()
 
-    // 2. Run all strategies in parallel via 0G Compute
     const results = await Promise.allSettled(
       STRATEGIES.map((s) => runStrategy(s, market)),
     )
@@ -35,22 +34,26 @@ export async function POST() {
         target_asset,
       }
 
-      // 3. Upload to 0G Storage
+      // Compute content hash BEFORE adding 0G proof fields
+      const contentHash = ethers.keccak256(
+        ethers.toUtf8Bytes(JSON.stringify(decision, null, 2))
+      )
+
       try {
+        // 1. Upload to 0G Storage (stores the clean decision)
         const { rootHash, txHash } = await uploadDecision(decision)
         decision.storage_root_hash = rootHash
         decision.storage_tx_hash = txHash
 
-        // 4. Anchor on 0G Chain
-        const chainResult = await anchorDecision(decision, rootHash)
+        // 2. Anchor on 0G Chain — use pre-computed hash
+        const chainResult = await anchorDecision(decision, rootHash, contentHash)
         decision.chain_tx_hash = chainResult.txHash
 
-        // 5. Sign EIP-191 receipt
+        // 3. Sign EIP-191 receipt
         const receipt = await signReceipt(decision, rootHash)
         decision.chain_receipt_sig = receipt.signature
       } catch (err) {
         console.error(`0G ops failed for ${decision.strategy_name}:`, err)
-        // Still include decision even without 0G proofs for demo
       }
 
       decisions.push(decision)
