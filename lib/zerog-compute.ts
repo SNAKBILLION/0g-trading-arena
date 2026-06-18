@@ -9,15 +9,15 @@ interface StrategyPrompt {
 export const STRATEGIES: StrategyPrompt[] = [
   {
     name: "Momentum Hunter",
-    system: "You are a momentum trading AI. You look for strong 24h price moves backed by high volume. You go LONG on coins pumping with volume confirmation, SHORT on coins dumping with volume, HOLD if signals are weak. Be aggressive — momentum is your edge.",
+    system: "You are a momentum trading AI. You ONLY go LONG when 24h change is POSITIVE with high volume. You MUST go SHORT when 24h change is strongly NEGATIVE with high volume. You go HOLD when signals are mixed or weak. Never default to LONG — SHORT and HOLD are equally valid.",
   },
   {
     name: "Mean Reverter",
-    system: "You are a mean-reversion trading AI. You look for overextended moves that are likely to revert. You SHORT coins that pumped too hard too fast (overbought), LONG coins that dumped too hard (oversold), HOLD if no clear extremes. Be contrarian — the crowd is usually late.",
+    system: "You are a mean-reversion trading AI. You MUST go SHORT on coins that pumped more than +3% (overbought). You MUST go LONG on coins that dumped more than -5% (oversold). If no coin is above +3% or below -5%, you HOLD. You are contrarian — never follow the crowd.",
   },
   {
     name: "Volume Sentinel",
-    system: "You are a volume-analysis trading AI. You focus on unusual volume patterns as leading indicators. High volume + small price change = accumulation (LONG). High volume + big dump = distribution (SHORT). Low volume moves are noise (HOLD). Volume tells the truth before price does.",
+    system: "You are a volume-analysis trading AI. High volume + small price change means accumulation (LONG). High volume + big negative change means distribution (SHORT). Low volume moves are noise (HOLD). You MUST use SHORT when distribution pattern is clear. Never default to LONG.",
   },
 ]
 
@@ -36,36 +36,35 @@ export async function runStrategy(
 
 ${marketSummary}
 
-Pick ONE coin from this list. Decide: LONG, SHORT, or HOLD.
-Respond ONLY in this exact JSON format, nothing else:
-{
-  "target": "SYMBOL",
-  "action": "LONG",
-  "confidence": 75,
-  "reasoning": "1-2 sentence explanation",
-  "entry_price": 0,
-  "stop_loss": 0,
-  "take_profit": 0
-}`
+IMPORTANT RULES:
+- Pick ONE coin from this list
+- You MUST choose LONG, SHORT, or HOLD based on your strategy — do NOT default to LONG
+- entry_price MUST be the coin's current price from the data above
+- stop_loss and take_profit MUST be realistic numbers based on entry_price (not 0)
+- For LONG: stop_loss = entry × 0.95 (5% below), take_profit = entry × 1.10 (10% above)
+- For SHORT: stop_loss = entry × 1.05 (5% above), take_profit = entry × 0.90 (10% below)
+- confidence should be between 60-90, never 100
+
+Respond ONLY with this JSON, nothing else:
+{"target":"<SYMBOL>","action":"<LONG or SHORT or HOLD>","confidence":<0-100>,"reasoning":"<explain using actual data>","entry_price":<current price>,"stop_loss":<realistic SL>,"take_profit":<realistic TP>}`
 
   const messages = [
     { role: "system" as const, content: strategy.system },
     { role: "user" as const, content: userPrompt },
   ]
 
-  // Try 0G Compute first, fallback to DeepSeek
   const endpoints = [
     {
       url: `${config.zerog.computeUrl}/chat/completions`,
       key: config.zerog.computeApiKey,
-      model: "llama-3.1-8b-instant",
+      model: "deepseek-chat",
       name: "0G Compute",
     },
     {
       url: "https://api.groq.com/openai/v1/chat/completions",
       key: config.groqKey,
       model: "llama-3.1-8b-instant",
-      name: "DeepSeek",
+      name: "Groq",
     },
   ].filter((e) => e.key)
 
@@ -82,7 +81,7 @@ Respond ONLY in this exact JSON format, nothing else:
         body: JSON.stringify({
           messages,
           model: ep.model,
-          temperature: 0.3,
+          temperature: 0.7,
           max_tokens: 300,
         }),
       })
@@ -97,7 +96,7 @@ Respond ONLY in this exact JSON format, nothing else:
       const clean = raw.replace(/```json|```/g, "").trim()
       const parsed = JSON.parse(clean)
 
-      console.log(`[${strategy.name}] via ${ep.name}`)
+      console.log(`[${strategy.name}] via ${ep.name}: ${parsed.action} ${parsed.target}`)
 
       return {
         target_asset: parsed.target,
